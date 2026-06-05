@@ -1,0 +1,24 @@
+name: Build Flutter iOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter Version
+        run: flutter --version
+
+      - name: Get Packages
+        run: flutter pub get
+
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
