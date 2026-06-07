@@ -6,9 +6,8 @@ void main() {
   runApp(const BibliaApp());
 }
 
-/// --- GESTOR DE ESTADO GLOBAL CORREGIDO ---
+/// --- GESTOR DE ESTADO GLOBAL ---
 class AppEstado {
-  // Guarda un mapa de: {"Cita (ID)": "Texto completo del versículo"}
   static final ValueNotifier<Map<String, String>> favoritos = ValueNotifier({});
   static final ValueNotifier<Map<String, Color>> colores = ValueNotifier({});
   static final ValueNotifier<Map<String, String>> notas = ValueNotifier({});
@@ -29,7 +28,6 @@ class AppEstado {
     }
     favoritos.value = copia;
 
-    // Animación de notificación flotante (SnackBar)
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -59,7 +57,7 @@ class AppEstado {
     if (color == null) {
       copia.remove(id);
     } else {
-      copia[id] = color; // ¡Corregido! Sin el ".value" que causaba el error
+      copia[id] = color;
     }
     colores.value = copia;
   }
@@ -73,21 +71,20 @@ class AppEstado {
     }
     notas.value = copia;
 
-    // Animación de notificación para la nota
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Row(
           children: [
             Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Text(
               'Nota guardada exitosamente',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
         ),
-        backgroundColor: Colors.lightBlueAccent[700],
+        backgroundColor: Colors.lightBlueAccent,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 2),
@@ -122,7 +119,7 @@ class Inicio extends StatefulWidget {
 }
 
 class _InicioState extends State<Inicio> {
-  List<dynamic> biblia = [];
+  List<dynamic> libros = [];
   List<dynamic> resultados = [];
   TextEditingController buscador = TextEditingController();
 
@@ -133,11 +130,21 @@ class _InicioState extends State<Inicio> {
   }
 
   Future<void> cargarBiblia() async {
-    String data = await rootBundle.loadString('assets/biblia.json');
-    setState(() {
-      biblia = json.decode(data);
-      resultados = biblia;
-    });
+    try {
+      String data = await rootBundle.loadString('assets/biblia.json');
+      final decodedData = json.decode(data);
+
+      setState(() {
+        if (decodedData is Map && decodedData.containsKey('books')) {
+          libros = decodedData['books'];
+        } else {
+          libros = [];
+        }
+        resultados = libros;
+      });
+    } catch (e) {
+      print("Error leyendo el archivo JSON: $e");
+    }
   }
 
   @override
@@ -170,7 +177,7 @@ class _InicioState extends State<Inicio> {
           ),
         ],
       ),
-      body: biblia.isEmpty
+      body: libros.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
@@ -187,11 +194,22 @@ class _InicioState extends State<Inicio> {
                     ),
                     onChanged: (texto) {
                       setState(() {
-                        resultados = biblia.where((libro) {
-                          return libro['name']
-                              .toString()
-                              .toLowerCase()
-                              .contains(texto.toLowerCase());
+                        String sinAcentos(String input) {
+                          var conAcento = 'áéíóúÁÉÍÓÚ';
+                          var sinAcento = 'aeiouAEIOU';
+                          String res = input;
+                          for (int i = 0; i < conAcento.length; i++) {
+                            res = res.replaceAll(conAcento[i], sinAcento[i]);
+                          }
+                          return res;
+                        }
+
+                        resultados = libros.where((libro) {
+                          final nombreLibro = sinAcentos(
+                            (libro['name'] ?? '').toString().toLowerCase(),
+                          );
+                          final textoBusqueda = sinAcentos(texto.toLowerCase());
+                          return nombreLibro.contains(textoBusqueda);
                         }).toList();
                       });
                     },
@@ -201,16 +219,17 @@ class _InicioState extends State<Inicio> {
                   child: ListView.builder(
                     itemCount: resultados.length,
                     itemBuilder: (context, index) {
+                      final libroItem = resultados[index];
+                      final nombreMostrado = libroItem['name'] ?? 'Desconocido';
                       return ListTile(
                         leading: const Icon(Icons.menu_book),
-                        title: Text(resultados[index]['name']),
+                        title: Text(nombreMostrado),
                         trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) =>
-                                  LibroScreen(libro: resultados[index]),
+                              builder: (_) => LibroScreen(libro: libroItem),
                             ),
                           );
                         },
@@ -230,31 +249,67 @@ class LibroScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    List capitulos = libro['chapters'];
+    // Filtrar únicamente los elementos que representen capítulos reales
+    List<dynamic> todosLosCapitulos = libro['chapters'] ?? [];
+    List<dynamic> capitulosReales = todosLosCapitulos
+        .where((c) => c['is_chapter'] == true)
+        .toList();
+
+    final nombreLibro = libro['name'] ?? 'Libro';
 
     return Scaffold(
-      appBar: AppBar(title: Text(libro['name'])),
-      body: ListView.builder(
-        itemCount: capitulos.length,
-        itemBuilder: (context, index) {
-          return ListTile(
-            title: Text('Capítulo ${index + 1}'),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CapituloScreen(
-                    libro: libro['name'],
-                    numero: index + 1,
-                    versiculos: capitulos[index],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+      appBar: AppBar(title: Text(nombreLibro)),
+      body: capitulosReales.isEmpty
+          ? const Center(child: Text('No se encontraron capítulos válidos.'))
+          : ListView.builder(
+              itemCount: capitulosReales.length,
+              itemBuilder: (context, index) {
+                final datosCapitulo = capitulosReales[index];
+
+                // Mapeo dinámico y seguro de los ítems de tipo verso
+                List<dynamic> itemsCapitulo = datosCapitulo['items'] ?? [];
+                List<Map<String, dynamic>> versiculosFiltrados = [];
+
+                for (var item in itemsCapitulo) {
+                  if (item is Map && item['type'] == 'verse') {
+                    List<dynamic> numList = item['verse_numbers'] ?? [];
+                    List<dynamic> linesList = item['lines'] ?? [];
+
+                    int numeroVerso = numList.isNotEmpty
+                        ? (int.tryParse(numList.first.toString()) ??
+                              (versiculosFiltrados.length + 1))
+                        : (versiculosFiltrados.length + 1);
+                    String textoVerso = linesList.isNotEmpty
+                        ? linesList.first.toString()
+                        : '';
+
+                    if (textoVerso.isNotEmpty) {
+                      versiculosFiltrados.add({
+                        'number': numeroVerso,
+                        'text': textoVerso,
+                      });
+                    }
+                  }
+                }
+
+                return ListTile(
+                  title: Text('Capítulo ${index + 1}'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CapituloScreen(
+                          libro: nombreLibro,
+                          numero: index + 1,
+                          versiculos: versiculosFiltrados,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
     );
   }
 }
@@ -262,7 +317,7 @@ class LibroScreen extends StatelessWidget {
 class CapituloScreen extends StatelessWidget {
   final String libro;
   final int numero;
-  final List versiculos;
+  final List<Map<String, dynamic>> versiculos;
 
   const CapituloScreen({
     super.key,
@@ -427,66 +482,78 @@ class CapituloScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('$libro $numero')),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: versiculos.length,
-        itemBuilder: (context, index) {
-          final numVersiculo = index + 1;
-          final String idVersiculo = "$libro $numero:$numVersiculo";
-          final String textoCompleto = versiculos[index];
+      body: versiculos.isEmpty
+          ? const Center(
+              child: Text(
+                'Este capítulo no contiene versículos visibles.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: versiculos.length,
+              itemBuilder: (context, index) {
+                final itemVersiculo = versiculos[index];
 
-          return AnimatedBuilder(
-            animation: Listenable.merge([
-              AppEstado.colores,
-              AppEstado.favoritos,
-              AppEstado.notas,
-            ]),
-            builder: (context, _) {
-              final colorFondo = AppEstado.colores.value[idVersiculo];
-              final esFav = AppEstado.favoritos.value.containsKey(idVersiculo);
+                int numVersiculo = itemVersiculo['number'];
+                String textoCompleto = itemVersiculo['text'];
+                final String idVersiculo = "$libro $numero:$numVersiculo";
 
-              return GestureDetector(
-                onLongPress: () =>
-                    _mostrarMenuContextual(context, idVersiculo, textoCompleto),
-                child: Card(
-                  color: colorFondo ?? Theme.of(context).cardColor,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: esFav
-                        ? const BorderSide(color: Colors.red, width: 1.5)
-                        : BorderSide.none,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '$numVersiculo. $textoCompleto',
-                            style: const TextStyle(fontSize: 18, height: 1.5),
+                return AnimatedBuilder(
+                  animation: Listenable.merge([
+                    AppEstado.colores,
+                    AppEstado.favoritos,
+                    AppEstado.notas,
+                  ]),
+                  builder: (context, _) {
+                    final colorFondo = AppEstado.colores.value[idVersiculo];
+                    final esFav = AppEstado.favoritos.value.containsKey(
+                      idVersiculo,
+                    );
+
+                    return GestureDetector(
+                      onLongPress: () => _mostrarMenuContextual(
+                        context,
+                        idVersiculo,
+                        textoCompleto,
+                      ),
+                      child: Card(
+                        color: colorFondo,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '$numVersiculo. $textoCompleto',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    height: 1.5,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              if (esFav)
+                                const Icon(
+                                  Icons.favorite,
+                                  color: Colors.red,
+                                  size: 16,
+                                ),
+                            ],
                           ),
                         ),
-                        if (esFav)
-                          const Icon(
-                            Icons.favorite,
-                            color: Colors.red,
-                            size: 16,
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
     );
   }
 }
 
-/// --- PANTALLA EXCLUSIVA DE FAVORITOS (MUESTRA CITA Y TEXTO COMPLETO) ---
 class FavoritosScreen extends StatelessWidget {
   const FavoritosScreen({super.key});
 
@@ -568,7 +635,6 @@ class FavoritosScreen extends StatelessWidget {
   }
 }
 
-/// --- PANTALLA EXCLUSIVA DE NOTAS ---
 class NotasGlobalScreen extends StatelessWidget {
   const NotasGlobalScreen({super.key});
 
