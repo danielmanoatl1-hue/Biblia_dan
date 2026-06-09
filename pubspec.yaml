@@ -23,11 +23,13 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
-
   uses-material-design: true
 
+  # Mapeo completo de todos los assets requeridos por la aplicación
   assets:
     - assets/biblia.json
+    - assets/bibliaNTV.json
+    - assets/bibliaTLA.json
     - assets/icon/logo.png
     - assets/splash/logo.png
 

@@ -1,23 +1,135 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppEstado.inicializar();
   runApp(const BibliaApp());
 }
 
-/// --- GESTOR DE ESTADO GLOBAL ---
+/// --- GESTOR DE ESTADO GLOBAL CON PERSISTENCIA ---
 class AppEstado {
-  static final ValueNotifier<Map<String, String>> favoritos = ValueNotifier({});
-  static final ValueNotifier<Map<String, Color>> colores = ValueNotifier({});
-  static final ValueNotifier<Map<String, String>> notas = ValueNotifier({});
+  static final ValueNotifier<Map<String, dynamic>> favoritos =
+      ValueNotifier<Map<String, dynamic>>({});
+  static final ValueNotifier<Map<String, dynamic>> colores =
+      ValueNotifier<Map<String, dynamic>>({});
+  static final ValueNotifier<Map<String, dynamic>> notas =
+      ValueNotifier<Map<String, dynamic>>({});
+  static final ValueNotifier<String> versionActual = ValueNotifier<String>(
+    'RV1960',
+  );
+
+  static const String _keyFavs = 'biblia_favoritos';
+  static const String _keyColores = 'biblia_colores';
+  static const String _keyNotas = 'biblia_notes_v2';
+  static const String _keyVersion = 'biblia_version_act';
+
+  static Future<void> inicializar() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final String? versionGuardada = prefs.getString(_keyVersion);
+    if (versionGuardada != null) {
+      versionActual.value = versionGuardada;
+    }
+
+    // Inicialización de Favoritos
+    final String? favsRaw = prefs.getString(_keyFavs);
+    if (favsRaw != null) {
+      try {
+        final decoded = json.decode(favsRaw);
+        if (decoded is Map) {
+          favoritos.value = Map<String, dynamic>.from(decoded);
+        } else {
+          favoritos.value = {};
+        }
+      } catch (_) {
+        favoritos.value = {};
+      }
+    }
+
+    // Inicialización de Notas
+    final String? notasRaw = prefs.getString(_keyNotas);
+    if (notasRaw != null) {
+      try {
+        final decoded = json.decode(notasRaw);
+        if (decoded is Map) {
+          notas.value = Map<String, dynamic>.from(decoded);
+        } else {
+          notas.value = {};
+        }
+      } catch (_) {
+        notas.value = {};
+      }
+    }
+
+    // Inicialización Inteligente y Defensiva de Colores (Soporta int y String corruptos)
+    final String? coloresRaw = prefs.getString(_keyColores);
+    if (coloresRaw != null) {
+      try {
+        final decoded = json.decode(coloresRaw);
+        if (decoded is Map) {
+          final Map<String, dynamic> mapaColores = {};
+          decoded.forEach((key, value) {
+            if (value is int) {
+              mapaColores[key] = Color(value);
+            } else if (value is String) {
+              // Si se guardó como texto por error, lo reparamos dinámicamente al vuelo
+              final int? parsedColor = int.tryParse(value);
+              if (parsedColor != null) {
+                mapaColores[key] = Color(parsedColor);
+              }
+            }
+          });
+          colores.value = mapaColores;
+        } else {
+          colores.value = {};
+        }
+      } catch (_) {
+        colores.value = {};
+      }
+    }
+  }
+
+  static Future<void> guardarVersion(String nuevaVersion) async {
+    if (versionActual.value == nuevaVersion) return;
+    versionActual.value = nuevaVersion;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyVersion, nuevaVersion);
+  }
+
+  static Future<void> _persistirFavoritos() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFavs, json.encode(favoritos.value));
+  }
+
+  static Future<void> _persistirNotas() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyNotas, json.encode(notas.value));
+  }
+
+  static Future<void> _persistirColores() async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, int> mapaInts = {};
+
+    colores.value.forEach((key, value) {
+      if (value is Color) {
+        mapaInts[key] = value.value;
+      } else if (value is int) {
+        mapaInts[key] = value;
+      }
+    });
+
+    await prefs.setString(_keyColores, json.encode(mapaInts));
+  }
 
   static void alternarFavorito(
     String id,
     String textoVersiculo,
     BuildContext context,
-  ) {
-    final copia = Map<String, String>.from(favoritos.value);
+  ) async {
+    final copia = Map<String, dynamic>.from(favoritos.value);
     bool seAgrego = false;
 
     if (copia.containsKey(id)) {
@@ -27,7 +139,9 @@ class AppEstado {
       seAgrego = true;
     }
     favoritos.value = copia;
+    await _persistirFavoritos();
 
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -52,39 +166,49 @@ class AppEstado {
     );
   }
 
-  static void cambiarColor(String id, Color? color) {
-    final copia = Map<String, Color>.from(colores.value);
+  static void cambiarColor(String id, Color? color) async {
+    final copia = Map<String, dynamic>.from(colores.value);
     if (color == null) {
       copia.remove(id);
     } else {
       copia[id] = color;
     }
     colores.value = copia;
+    await _persistirColores();
   }
 
-  static void guardarNota(String id, String texto, BuildContext context) {
-    final copia = Map<String, String>.from(notas.value);
-    if (texto.trim().isEmpty) {
+  static void guardarNota(String id, String texto, BuildContext context) async {
+    final copia = Map<String, dynamic>.from(notas.value);
+    bool esEliminacion = texto.trim().isEmpty;
+
+    if (esEliminacion) {
       copia.remove(id);
     } else {
       copia[id] = texto;
     }
     notas.value = copia;
+    await _persistirNotas();
 
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Row(
+        content: Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            SizedBox(width: 12),
+            Icon(
+              esEliminacion ? Icons.delete : Icons.check_circle,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
             Text(
-              'Nota guardada exitosamente',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              esEliminacion ? 'Nota eliminada' : 'Nota guardada exitosamente',
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ],
         ),
-        backgroundColor: Colors.lightBlueAccent,
+        backgroundColor: esEliminacion
+            ? Colors.redAccent
+            : Colors.lightBlueAccent,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 2),
@@ -100,7 +224,7 @@ class BibliaApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Biblia',
+      title: 'Biblia Multi-Versión',
       theme: ThemeData.dark().copyWith(
         primaryColor: Colors.amber,
         scaffoldBackgroundColor: const Color(0xFF121212),
@@ -126,13 +250,36 @@ class _InicioState extends State<Inicio> {
   @override
   void initState() {
     super.initState();
-    cargarBiblia();
+    AppEstado.versionActual.addListener(_alCambiarVersion);
+    cargarBibliaActual();
   }
 
-  Future<void> cargarBiblia() async {
+  @override
+  void dispose() {
+    AppEstado.versionActual.removeListener(_alCambiarVersion);
+    buscador.dispose();
+    super.dispose();
+  }
+
+  void _alCambiarVersion() {
+    if (mounted) {
+      cargarBibliaActual();
+    }
+  }
+
+  Future<void> cargarBibliaActual() async {
     try {
-      String data = await rootBundle.loadString('assets/biblia.json');
+      String path = 'assets/biblia.json';
+      if (AppEstado.versionActual.value == 'NTV') {
+        path = 'assets/bibliaNTV.json';
+      } else if (AppEstado.versionActual.value == 'TLA') {
+        path = 'assets/bibliaTLA.json';
+      }
+
+      String data = await rootBundle.loadString(path);
       final decodedData = json.decode(data);
+
+      if (!mounted) return;
 
       setState(() {
         if (decodedData is Map && decodedData.containsKey('books')) {
@@ -141,9 +288,10 @@ class _InicioState extends State<Inicio> {
           libros = [];
         }
         resultados = libros;
+        buscador.clear();
       });
     } catch (e) {
-      print("Error leyendo el archivo JSON: $e");
+      debugPrint("Error leyendo archivo JSON de la Biblia: $e");
     }
   }
 
@@ -177,46 +325,98 @@ class _InicioState extends State<Inicio> {
           ),
         ],
       ),
-      body: libros.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: TextField(
-                    controller: buscador,
-                    decoration: InputDecoration(
-                      hintText: 'Buscar libro...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    onChanged: (texto) {
-                      setState(() {
-                        String sinAcentos(String input) {
-                          var conAcento = 'áéíóúÁÉÍÓÚ';
-                          var sinAcento = 'aeiouAEIOU';
-                          String res = input;
-                          for (int i = 0; i < conAcento.length; i++) {
-                            res = res.replaceAll(conAcento[i], sinAcento[i]);
-                          }
-                          return res;
-                        }
-
-                        resultados = libros.where((libro) {
-                          final nombreLibro = sinAcentos(
-                            (libro['name'] ?? '').toString().toLowerCase(),
-                          );
-                          final textoBusqueda = sinAcentos(texto.toLowerCase());
-                          return nombreLibro.contains(textoBusqueda);
-                        }).toList();
-                      });
-                    },
-                  ),
+      body: Column(
+        children: [
+          ValueListenableBuilder<String>(
+            valueListenable: AppEstado.versionActual,
+            builder: (context, version, _) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 12,
                 ),
-                Expanded(
-                  child: ListView.builder(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ['RV1960', 'NTV', 'TLA'].map((v) {
+                    bool esSeleccionado = (v == version);
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: esSeleccionado
+                                ? Colors.amber
+                                : const Color(0xFF222222),
+
+                            foregroundColor: esSeleccionado
+                                ? Colors.black
+                                : Colors.white,
+
+                            textStyle: TextStyle(
+                              fontWeight: esSeleccionado
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            side: BorderSide(
+                              color: esSeleccionado
+                                  ? Colors.amber
+                                  : Colors.grey.shade800,
+                            ),
+                          ),
+                          onPressed: () => AppEstado.guardarVersion(v),
+                          child: Text(v),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
+            },
+          ),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: TextField(
+              controller: buscador,
+              decoration: InputDecoration(
+                hintText: 'Buscar libro...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onChanged: (texto) {
+                setState(() {
+                  String sinAcentos(String input) {
+                    var conAcento = 'áéíóúÁÉÍÓÚ';
+                    var sinAcento = 'aeiouAEIOU';
+                    String res = input;
+                    for (int i = 0; i < conAcento.length; i++) {
+                      res = res.replaceAll(conAcento[i], sinAcento[i]);
+                    }
+                    return res;
+                  }
+
+                  resultados = libros.where((libro) {
+                    final nombreLibro = sinAcentos(
+                      (libro['name'] ?? '').toString().toLowerCase(),
+                    );
+                    final textoBusqueda = sinAcentos(texto.toLowerCase());
+                    return nombreLibro.contains(textoBusqueda);
+                  }).toList();
+                });
+              },
+            ),
+          ),
+
+          Expanded(
+            child: libros.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
                     itemCount: resultados.length,
                     itemBuilder: (context, index) {
                       final libroItem = resultados[index];
@@ -236,9 +436,9 @@ class _InicioState extends State<Inicio> {
                       );
                     },
                   ),
-                ),
-              ],
-            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -249,12 +449,10 @@ class LibroScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Filtrar únicamente los elementos que representen capítulos reales
     List<dynamic> todosLosCapitulos = libro['chapters'] ?? [];
     List<dynamic> capitulosReales = todosLosCapitulos
         .where((c) => c['is_chapter'] == true)
         .toList();
-
     final nombreLibro = libro['name'] ?? 'Libro';
 
     return Scaffold(
@@ -265,10 +463,8 @@ class LibroScreen extends StatelessWidget {
               itemCount: capitulosReales.length,
               itemBuilder: (context, index) {
                 final datosCapitulo = capitulosReales[index];
-
-                // Mapeo dinámico y seguro de los ítems de tipo verso
                 List<dynamic> itemsCapitulo = datosCapitulo['items'] ?? [];
-                List<Map<String, dynamic>> versiculosFiltrados = [];
+                List<dynamic> versiculosFiltrados = [];
 
                 for (var item in itemsCapitulo) {
                   if (item is Map && item['type'] == 'verse') {
@@ -279,9 +475,11 @@ class LibroScreen extends StatelessWidget {
                         ? (int.tryParse(numList.first.toString()) ??
                               (versiculosFiltrados.length + 1))
                         : (versiculosFiltrados.length + 1);
-                    String textoVerso = linesList.isNotEmpty
-                        ? linesList.first.toString()
-                        : '';
+
+                    String textoVerso = linesList
+                        .map((e) => e.toString())
+                        .join(" ")
+                        .trim();
 
                     if (textoVerso.isNotEmpty) {
                       versiculosFiltrados.add({
@@ -317,7 +515,7 @@ class LibroScreen extends StatelessWidget {
 class CapituloScreen extends StatelessWidget {
   final String libro;
   final int numero;
-  final List<Map<String, dynamic>> versiculos;
+  final List<dynamic> versiculos;
 
   const CapituloScreen({
     super.key,
@@ -326,16 +524,141 @@ class CapituloScreen extends StatelessWidget {
     required this.versiculos,
   });
 
+  Future<String> _obtenerVersiculoDeVersion(
+    String versionTarget,
+    int numVersiculo,
+  ) async {
+    try {
+      String path = 'assets/biblia.json';
+      if (versionTarget == 'NTV') path = 'assets/bibliaNTV.json';
+      if (versionTarget == 'TLA') path = 'assets/bibliaTLA.json';
+
+      String data = await rootBundle.loadString(path);
+      final decoded = json.decode(data);
+      List<dynamic> books = decoded['books'] ?? [];
+
+      var libroEncontrado = books.firstWhere(
+        (b) => b['name'].toString().toLowerCase() == libro.toLowerCase(),
+        orElse: () => null,
+      );
+
+      if (libroEncontrado != null) {
+        List<dynamic> chapters = libroEncontrado['chapters'] ?? [];
+        List<dynamic> reales = chapters
+            .where((c) => c['is_chapter'] == true)
+            .toList();
+
+        if (numero <= reales.length) {
+          var datosCapitulo = reales[numero - 1];
+          List<dynamic> items = datosCapitulo['items'] ?? [];
+
+          for (var item in items) {
+            if (item is Map && item['type'] == 'verse') {
+              List<dynamic> numList = item['verse_numbers'] ?? [];
+              if (numList.isNotEmpty &&
+                  numList.first.toString() == numVersiculo.toString()) {
+                List<dynamic> linesList = item['lines'] ?? [];
+                return linesList.map((e) => e.toString()).join(" ").trim();
+              }
+            }
+          }
+        }
+      }
+      return 'Versículo no encontrado en esta traducción.';
+    } catch (e) {
+      return 'Error al cargar traducción.';
+    }
+  }
+
+  void _mostrarComparadorTraducciones(
+    BuildContext context,
+    String idVersiculo,
+    int numVersiculo,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            'Comparador: $idVersiculo',
+            style: const TextStyle(color: Colors.amber),
+          ),
+          backgroundColor: const Color(0xFF1A1A1A),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: ['RV1960', 'NTV', 'TLA'].map((v) {
+                  return FutureBuilder<String>(
+                    future: _obtenerVersiculoDeVersion(v, numVersiculo),
+                    builder: (context, snapshot) {
+                      String textoTraduccion =
+                          snapshot.connectionState == ConnectionState.waiting
+                          ? 'Cargando traducción...'
+                          : (snapshot.data ?? '');
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade800,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                v,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              textoTraduccion,
+                              style: const TextStyle(fontSize: 15, height: 1.4),
+                            ),
+                            const Divider(color: Colors.grey),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _mostrarMenuContextual(
     BuildContext context,
     String idVersiculo,
     String textoVersiculo,
+    int numVersiculo,
   ) {
     showDialog(
       context: context,
       builder: (dialogContext) {
         final textController = TextEditingController(
-          text: AppEstado.notas.value[idVersiculo] ?? '',
+          text: AppEstado.notas.value[idVersiculo]?.toString() ?? '',
         );
 
         return AlertDialog(
@@ -356,7 +679,7 @@ class CapituloScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
 
-              ValueListenableBuilder(
+              ValueListenableBuilder<Map<String, dynamic>>(
                 valueListenable: AppEstado.colores,
                 builder: (context, mapaColores, _) {
                   List<Color> misColores = [
@@ -369,8 +692,10 @@ class CapituloScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       ...misColores.map((color) {
+                        final colorGuardado = mapaColores[idVersiculo];
                         bool esSeleccionado =
-                            mapaColores[idVersiculo]?.value == color.value;
+                            colorGuardado is Color &&
+                            colorGuardado.value == color.value;
                         return GestureDetector(
                           onTap: () {
                             AppEstado.cambiarColor(idVersiculo, color);
@@ -405,7 +730,20 @@ class CapituloScreen extends StatelessWidget {
               ),
               const Divider(height: 24, color: Colors.grey),
 
-              ValueListenableBuilder(
+              ListTile(
+                leading: const Icon(Icons.compare_arrows, color: Colors.amber),
+                title: const Text('Comparar Traducciones'),
+                onTap: () {
+                  Navigator.pop(dialogContext);
+                  _mostrarComparadorTraducciones(
+                    context,
+                    idVersiculo,
+                    numVersiculo,
+                  );
+                },
+              ),
+
+              ValueListenableBuilder<Map<String, dynamic>>(
                 valueListenable: AppEstado.favoritos,
                 builder: (context, favs, _) {
                   bool esFav = favs.containsKey(idVersiculo);
@@ -481,7 +819,12 @@ class CapituloScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('$libro $numero')),
+      appBar: AppBar(
+        title: ValueListenableBuilder<String>(
+          valueListenable: AppEstado.versionActual,
+          builder: (context, version, _) => Text('$libro $numero ($version)'),
+        ),
+      ),
       body: versiculos.isEmpty
           ? const Center(
               child: Text(
@@ -494,57 +837,67 @@ class CapituloScreen extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               itemCount: versiculos.length,
               itemBuilder: (context, index) {
-                final itemVersiculo = versiculos[index];
-
-                int numVersiculo = itemVersiculo['number'];
-                String textoCompleto = itemVersiculo['text'];
+                final itemVersiculo = versiculos[index] as Map<String, dynamic>;
+                int numVersiculo = itemVersiculo['number'] ?? (index + 1);
+                String textoCompleto = itemVersiculo['text'] ?? '';
                 final String idVersiculo = "$libro $numero:$numVersiculo";
 
-                return AnimatedBuilder(
-                  animation: Listenable.merge([
-                    AppEstado.colores,
-                    AppEstado.favoritos,
-                    AppEstado.notas,
-                  ]),
-                  builder: (context, _) {
-                    final colorFondo = AppEstado.colores.value[idVersiculo];
-                    final esFav = AppEstado.favoritos.value.containsKey(
-                      idVersiculo,
-                    );
+                return ValueListenableBuilder<String>(
+                  valueListenable: AppEstado.versionActual,
+                  builder: (context, _, __) {
+                    return AnimatedBuilder(
+                      animation: Listenable.merge([
+                        AppEstado.colores,
+                        AppEstado.favoritos,
+                        AppEstado.notas,
+                      ]),
+                      builder: (context, _) {
+                        final colorDinamico =
+                            AppEstado.colores.value[idVersiculo];
+                        final Color? colorFondo = colorDinamico is Color
+                            ? colorDinamico
+                            : null;
 
-                    return GestureDetector(
-                      onLongPress: () => _mostrarMenuContextual(
-                        context,
-                        idVersiculo,
-                        textoCompleto,
-                      ),
-                      child: Card(
-                        color: colorFondo,
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '$numVersiculo. $textoCompleto',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    height: 1.5,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                              if (esFav)
-                                const Icon(
-                                  Icons.favorite,
-                                  color: Colors.red,
-                                  size: 16,
-                                ),
-                            ],
+                        final esFav = AppEstado.favoritos.value.containsKey(
+                          idVersiculo,
+                        );
+
+                        return GestureDetector(
+                          onLongPress: () => _mostrarMenuContextual(
+                            context,
+                            idVersiculo,
+                            textoCompleto,
+                            numVersiculo,
                           ),
-                        ),
-                      ),
+                          child: Card(
+                            color: colorFondo,
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '$numVersiculo. $textoCompleto',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        height: 1.5,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  if (esFav)
+                                    const Icon(
+                                      Icons.favorite,
+                                      color: Colors.red,
+                                      size: 16,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     );
                   },
                 );
@@ -561,7 +914,7 @@ class FavoritosScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Mis Favoritos')),
-      body: ValueListenableBuilder(
+      body: ValueListenableBuilder<Map<String, dynamic>>(
         valueListenable: AppEstado.favoritos,
         builder: (context, mapaFavs, _) {
           if (mapaFavs.isEmpty) {
@@ -573,14 +926,13 @@ class FavoritosScreen extends StatelessWidget {
               ),
             );
           }
-
           final keys = mapaFavs.keys.toList();
 
           return ListView.builder(
             itemCount: keys.length,
             itemBuilder: (context, index) {
               final citaId = keys[index];
-              final textoVersiculo = mapaFavs[citaId] ?? '';
+              final textoVersiculo = mapaFavs[citaId]?.toString() ?? '';
 
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -638,11 +990,40 @@ class FavoritosScreen extends StatelessWidget {
 class NotasGlobalScreen extends StatelessWidget {
   const NotasGlobalScreen({super.key});
 
+  void _confirmarEliminarNota(BuildContext context, String citaId) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar nota'),
+        content: Text(
+          '¿Estás seguro de que deseas eliminar la nota de $citaId?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              AppEstado.guardarNota(citaId, '', context);
+            },
+            child: const Text(
+              'Confirmar',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Mis Notas y Reflexiones')),
-      body: ValueListenableBuilder(
+      body: ValueListenableBuilder<Map<String, dynamic>>(
         valueListenable: AppEstado.notas,
         builder: (context, mapaNotas, _) {
           if (mapaNotas.isEmpty) {
@@ -654,14 +1035,13 @@ class NotasGlobalScreen extends StatelessWidget {
               ),
             );
           }
-
           final keys = mapaNotas.keys.toList();
 
           return ListView.builder(
             itemCount: keys.length,
             itemBuilder: (context, index) {
               final citaId = keys[index];
-              final cuerpoNota = mapaNotas[citaId] ?? '';
+              final cuerpoNota = mapaNotas[citaId]?.toString() ?? '';
 
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -692,9 +1072,7 @@ class NotasGlobalScreen extends StatelessWidget {
                       Icons.delete_outline,
                       color: Colors.redAccent,
                     ),
-                    onPressed: () {
-                      AppEstado.guardarNota(citaId, '', context);
-                    },
+                    onPressed: () => _confirmarEliminarNota(context, citaId),
                   ),
                 ),
               );
