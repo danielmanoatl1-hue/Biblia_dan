@@ -21,10 +21,20 @@ class AppEstado {
     'RV1960',
   );
 
+  // VALUENOTIFIERS PARA AJUSTES
+  static final ValueNotifier<double> tamanoLetra = ValueNotifier<double>(18.0);
+
+  // CONTROLADOR DE TEMAS PERSONALIZADOS
+  static final ValueNotifier<String> temaSeleccionado = ValueNotifier<String>(
+    'dark',
+  );
+
   static const String _keyFavs = 'biblia_favoritos';
   static const String _keyColores = 'biblia_colores';
   static const String _keyNotas = 'biblia_notes_v2';
   static const String _keyVersion = 'biblia_version_act';
+  static const String _keyTamanoLetra = 'biblia_font_size';
+  static const String _keyTemaPersonalizado = 'biblia_tema_personalizado';
 
   static Future<void> inicializar() async {
     final prefs = await SharedPreferences.getInstance();
@@ -34,6 +44,18 @@ class AppEstado {
       versionActual.value = versionGuardada;
     }
 
+    // Cargar tamaño de letra guardado
+    final double? letraGuardada = prefs.getDouble(_keyTamanoLetra);
+    if (letraGuardada != null) {
+      tamanoLetra.value = letraGuardada;
+    }
+
+    // Cargar tema guardado (por defecto 'dark')
+    final String? temaGuardado = prefs.getString(_keyTemaPersonalizado);
+    if (temaGuardado != null) {
+      temaSeleccionado.value = temaGuardado;
+    }
+
     // Inicialización de Favoritos
     final String? favsRaw = prefs.getString(_keyFavs);
     if (favsRaw != null) {
@@ -41,12 +63,8 @@ class AppEstado {
         final decoded = json.decode(favsRaw);
         if (decoded is Map) {
           favoritos.value = Map<String, dynamic>.from(decoded);
-        } else {
-          favoritos.value = {};
         }
-      } catch (_) {
-        favoritos.value = {};
-      }
+      } catch (_) {}
     }
 
     // Inicialización de Notas
@@ -56,15 +74,11 @@ class AppEstado {
         final decoded = json.decode(notasRaw);
         if (decoded is Map) {
           notas.value = Map<String, dynamic>.from(decoded);
-        } else {
-          notas.value = {};
         }
-      } catch (_) {
-        notas.value = {};
-      }
+      } catch (_) {}
     }
 
-    // Inicialización Inteligente y Defensiva de Colores (Soporta int y String corruptos)
+    // Inicialización de Colores
     final String? coloresRaw = prefs.getString(_keyColores);
     if (coloresRaw != null) {
       try {
@@ -74,21 +88,11 @@ class AppEstado {
           decoded.forEach((key, value) {
             if (value is int) {
               mapaColores[key] = Color(value);
-            } else if (value is String) {
-              // Si se guardó como texto por error, lo reparamos dinámicamente al vuelo
-              final int? parsedColor = int.tryParse(value);
-              if (parsedColor != null) {
-                mapaColores[key] = Color(parsedColor);
-              }
             }
           });
           colores.value = mapaColores;
-        } else {
-          colores.value = {};
         }
-      } catch (_) {
-        colores.value = {};
-      }
+      } catch (_) {}
     }
   }
 
@@ -97,6 +101,18 @@ class AppEstado {
     versionActual.value = nuevaVersion;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyVersion, nuevaVersion);
+  }
+
+  static Future<void> guardarTamanoLetra(double nuevoTamano) async {
+    tamanoLetra.value = nuevoTamano;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_keyTamanoLetra, nuevoTamano);
+  }
+
+  static Future<void> cambiarTema(String nuevoTema) async {
+    temaSeleccionado.value = nuevoTema;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyTemaPersonalizado, nuevoTema);
   }
 
   static Future<void> _persistirFavoritos() async {
@@ -112,15 +128,9 @@ class AppEstado {
   static Future<void> _persistirColores() async {
     final prefs = await SharedPreferences.getInstance();
     final Map<String, int> mapaInts = {};
-
     colores.value.forEach((key, value) {
-      if (value is Color) {
-        mapaInts[key] = value.value;
-      } else if (value is int) {
-        mapaInts[key] = value;
-      }
+      if (value is Color) mapaInts[key] = value.value;
     });
-
     await prefs.setString(_keyColores, json.encode(mapaInts));
   }
 
@@ -220,17 +230,126 @@ class AppEstado {
 class BibliaApp extends StatelessWidget {
   const BibliaApp({super.key});
 
+  ThemeData _obtenerThemeData(String nombreTema) {
+    switch (nombreTema) {
+      case 'light':
+        return ThemeData.light().copyWith(
+          primaryColor: Colors.amber,
+          scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.amber,
+            foregroundColor: Colors.black,
+          ),
+          colorScheme: const ColorScheme.light(
+            primary: Colors.amber,
+            surface: Colors.white,
+          ),
+          cardTheme: const CardThemeData(color: Colors.white),
+        );
+      case 'sepia':
+        return ThemeData.light().copyWith(
+          primaryColor: const Color(0xFF8B5A2B),
+          scaffoldBackgroundColor: const Color(0xFFF4ECD8),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFFE4D3B2),
+            foregroundColor: Color(0xFF5B4636),
+          ),
+          colorScheme: const ColorScheme.light(
+            primary: Color(0xFF8B5A2B),
+            surface: Color(0xFFFDF8EC),
+          ),
+          cardTheme: const CardThemeData(color: Color(0xFFFDF8EC)),
+        );
+      case 'ocean':
+        return ThemeData.dark().copyWith(
+          primaryColor: Colors.cyan,
+          scaffoldBackgroundColor: const Color(0xFF0F172A),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF1E293B),
+            foregroundColor: Colors.cyan,
+          ),
+          colorScheme: const ColorScheme.dark(
+            primary: Colors.cyan,
+            surface: Color(0xFF1E293B),
+          ),
+          cardTheme: const CardThemeData(color: Color(0xFF1E293B)),
+        );
+      case 'forest':
+        return ThemeData.dark().copyWith(
+          primaryColor: const Color(0xFF81C784),
+          scaffoldBackgroundColor: const Color(0xFF141F17),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF1E3324),
+            foregroundColor: Color(0xFF81C784),
+          ),
+          colorScheme: const ColorScheme.dark(
+            primary: const Color(0xFF81C784),
+            surface: Color(0xFF1E3324),
+          ),
+          cardTheme: const CardThemeData(color: Color(0xFF1E3324)),
+        );
+      case 'lavender':
+        return ThemeData.light().copyWith(
+          primaryColor: Colors.deepPurpleAccent,
+          scaffoldBackgroundColor: const Color(0xFFF3E5F5),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFFE1BEE7),
+            foregroundColor: Colors.deepPurple,
+          ),
+          colorScheme: const ColorScheme.light(
+            primary: Colors.deepPurple,
+            surface: Colors.white,
+          ),
+          cardTheme: const CardThemeData(color: Colors.white),
+        );
+      case 'amoled':
+        return ThemeData.dark().copyWith(
+          primaryColor: Colors.white,
+          scaffoldBackgroundColor: Colors.black,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF121212),
+            foregroundColor: Colors.white,
+          ),
+          colorScheme: const ColorScheme.dark(
+            primary: Colors.white,
+            surface: Color(0xFF121212),
+          ),
+          cardTheme: const CardThemeData(color: Color(0xFF121212)),
+        );
+      case 'dark':
+      default:
+        return ThemeData.dark().copyWith(
+          primaryColor: Colors.amber,
+          scaffoldBackgroundColor: const Color(0xFF121212),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFF1F1F1F),
+            foregroundColor: Colors.amber,
+          ),
+          colorScheme: const ColorScheme.dark(
+            primary: Colors.amber,
+            surface: Color(0xFF1E1E1E),
+          ),
+          cardTheme: const CardThemeData(color: Color(0xFF1E1E1E)),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Biblia Multi-Versión',
-      theme: ThemeData.dark().copyWith(
-        primaryColor: Colors.amber,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        colorScheme: const ColorScheme.dark(primary: Colors.amber),
-      ),
-      home: const Inicio(),
+    return AnimatedBuilder(
+      animation: AppEstado.temaSeleccionado,
+      builder: (context, _) {
+        final currentTheme = _obtenerThemeData(
+          AppEstado.temaSeleccionado.value,
+        );
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Biblia Multi-Versión',
+          theme: currentTheme,
+          darkTheme: currentTheme,
+          home: const Inicio(),
+        );
+      },
     );
   }
 }
@@ -262,9 +381,7 @@ class _InicioState extends State<Inicio> {
   }
 
   void _alCambiarVersion() {
-    if (mounted) {
-      cargarBibliaActual();
-    }
+    if (mounted) cargarBibliaActual();
   }
 
   Future<void> cargarBibliaActual() async {
@@ -295,150 +412,186 @@ class _InicioState extends State<Inicio> {
     }
   }
 
+  bool _esTemaOscuro(String tema) {
+    return ['dark', 'ocean', 'forest', 'amoled'].contains(tema);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Santa Biblia'),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(
-              Icons.sticky_note_2,
-              color: Colors.lightBlueAccent,
-            ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NotasGlobalScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.bookmark, color: Colors.amber),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const FavoritosScreen()),
-              );
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          ValueListenableBuilder<String>(
-            valueListenable: AppEstado.versionActual,
-            builder: (context, version, _) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 10,
-                  horizontal: 12,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: ['RV1960', 'NTV', 'TLA'].map((v) {
-                    bool esSeleccionado = (v == version);
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: esSeleccionado
-                                ? Colors.amber
-                                : const Color(0xFF222222),
+    return ValueListenableBuilder<String>(
+      valueListenable: AppEstado.temaSeleccionado,
+      builder: (context, tActual, _) {
+        final bool esOscuro = _esTemaOscuro(tActual);
+        final colorTexto = esOscuro ? Colors.white : Colors.black87;
 
-                            foregroundColor: esSeleccionado
-                                ? Colors.black
-                                : Colors.white,
-
-                            textStyle: TextStyle(
-                              fontWeight: esSeleccionado
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            side: BorderSide(
-                              color: esSeleccionado
-                                  ? Colors.amber
-                                  : Colors.grey.shade800,
-                            ),
-                          ),
-                          onPressed: () => AppEstado.guardarVersion(v),
-                          child: Text(v),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              );
-            },
-          ),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: TextField(
-              controller: buscador,
-              decoration: InputDecoration(
-                hintText: 'Buscar libro...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onChanged: (texto) {
-                setState(() {
-                  String sinAcentos(String input) {
-                    var conAcento = 'áéíóúÁÉÍÓÚ';
-                    var sinAcento = 'aeiouAEIOU';
-                    String res = input;
-                    for (int i = 0; i < conAcento.length; i++) {
-                      res = res.replaceAll(conAcento[i], sinAcento[i]);
-                    }
-                    return res;
-                  }
-
-                  resultados = libros.where((libro) {
-                    final nombreLibro = sinAcentos(
-                      (libro['name'] ?? '').toString().toLowerCase(),
-                    );
-                    final textoBusqueda = sinAcentos(texto.toLowerCase());
-                    return nombreLibro.contains(textoBusqueda);
-                  }).toList();
-                });
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Santa Biblia'),
+            centerTitle: true,
+            leading: IconButton(
+              icon: const Icon(Icons.settings),
+              tooltip: 'Ajustes de la App',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AjustesScreen()),
+                );
               },
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(
+                  Icons.sticky_note_2,
+                  color: Colors.lightBlueAccent,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotasGlobalScreen(),
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.bookmark, color: Colors.amber),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FavoritosScreen()),
+                  );
+                },
+              ),
+            ],
           ),
-
-          Expanded(
-            child: libros.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    itemCount: resultados.length,
-                    itemBuilder: (context, index) {
-                      final libroItem = resultados[index];
-                      final nombreMostrado = libroItem['name'] ?? 'Desconocido';
-                      return ListTile(
-                        leading: const Icon(Icons.menu_book),
-                        title: Text(nombreMostrado),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => LibroScreen(libro: libroItem),
+          body: Column(
+            children: [
+              ValueListenableBuilder<String>(
+                valueListenable: AppEstado.versionActual,
+                builder: (context, version, _) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: ['RV1960', 'NTV', 'TLA'].map((v) {
+                        bool esSeleccionado = (v == version);
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: esSeleccionado
+                                    ? Colors.amber
+                                    : (esOscuro
+                                          ? const Color(0xFF222222)
+                                          : Colors.grey.shade300),
+                                foregroundColor: esSeleccionado
+                                    ? Colors.black
+                                    : colorTexto,
+                                textStyle: TextStyle(
+                                  fontWeight: esSeleccionado
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                side: BorderSide(
+                                  color: esSeleccionado
+                                      ? Colors.amber
+                                      : Colors.grey.shade500,
+                                ),
+                              ),
+                              onPressed: () => AppEstado.guardarVersion(v),
+                              child: Text(v),
                             ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                },
+              ),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                child: TextField(
+                  controller: buscador,
+                  style: TextStyle(color: colorTexto),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar libro...',
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: esOscuro ? Colors.transparent : Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onChanged: (texto) {
+                    setState(() {
+                      String sinAcentos(String input) {
+                        var conAcento = 'áéíóúÁÉÍÓÚ';
+                        var sinAcento = 'aeiouAEIOU';
+                        String res = input;
+                        for (int i = 0; i < conAcento.length; i++) {
+                          res = res.replaceAll(conAcento[i], sinAcento[i]);
+                        }
+                        return res;
+                      }
+
+                      resultados = libros.where((libro) {
+                        final nombreLibro = sinAcentos(
+                          (libro['name'] ?? '').toString().toLowerCase(),
+                        );
+                        final textoBusqueda = sinAcentos(texto.toLowerCase());
+                        return nombreLibro.contains(textoBusqueda);
+                      }).toList();
+                    });
+                  },
+                ),
+              ),
+
+              Expanded(
+                child: libros.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : ListView.builder(
+                        itemCount: resultados.length,
+                        itemBuilder: (context, index) {
+                          final libroItem = resultados[index];
+                          final nombreMostrado =
+                              libroItem['name'] ?? 'Desconocido';
+                          return ListTile(
+                            leading: const Icon(Icons.menu_book),
+                            title: Text(
+                              nombreMostrado,
+                              style: TextStyle(color: colorTexto),
+                            ),
+                            trailing: const Icon(
+                              Icons.arrow_forward_ios,
+                              size: 16,
+                            ),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LibroScreen(libro: libroItem),
+                                ),
+                              );
+                            },
                           );
                         },
-                      );
-                    },
-                  ),
+                      ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -462,34 +615,6 @@ class LibroScreen extends StatelessWidget {
           : ListView.builder(
               itemCount: capitulosReales.length,
               itemBuilder: (context, index) {
-                final datosCapitulo = capitulosReales[index];
-                List<dynamic> itemsCapitulo = datosCapitulo['items'] ?? [];
-                List<dynamic> versiculosFiltrados = [];
-
-                for (var item in itemsCapitulo) {
-                  if (item is Map && item['type'] == 'verse') {
-                    List<dynamic> numList = item['verse_numbers'] ?? [];
-                    List<dynamic> linesList = item['lines'] ?? [];
-
-                    int numeroVerso = numList.isNotEmpty
-                        ? (int.tryParse(numList.first.toString()) ??
-                              (versiculosFiltrados.length + 1))
-                        : (versiculosFiltrados.length + 1);
-
-                    String textoVerso = linesList
-                        .map((e) => e.toString())
-                        .join(" ")
-                        .trim();
-
-                    if (textoVerso.isNotEmpty) {
-                      versiculosFiltrados.add({
-                        'number': numeroVerso,
-                        'text': textoVerso,
-                      });
-                    }
-                  }
-                }
-
                 return ListTile(
                   title: Text('Capítulo ${index + 1}'),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -497,10 +622,10 @@ class LibroScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => CapituloScreen(
+                        builder: (_) => CapituloPagerScreen(
                           libro: nombreLibro,
-                          numero: index + 1,
-                          versiculos: versiculosFiltrados,
+                          capitulosReales: capitulosReales,
+                          capituloInicialIndex: index,
                         ),
                       ),
                     );
@@ -508,6 +633,173 @@ class LibroScreen extends StatelessWidget {
                 );
               },
             ),
+    );
+  }
+}
+
+/// --- CONTENEDOR DESLIZABLE CORREGIDO CON ADAPTACIÓN PARA LAPTOP ---
+class CapituloPagerScreen extends StatefulWidget {
+  final String libro;
+  final List<dynamic> capitulosReales;
+  final int capituloInicialIndex;
+
+  const CapituloPagerScreen({
+    super.key,
+    required this.libro,
+    required this.capitulosReales,
+    required this.capituloInicialIndex,
+  });
+
+  @override
+  State<CapituloPagerScreen> createState() => _CapituloPagerScreenState();
+}
+
+class _CapituloPagerScreenState extends State<CapituloPagerScreen> {
+  late PageController _pageController;
+  late FocusNode _focusNode;
+  int _paginaActual = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _paginaActual = widget.capituloInicialIndex;
+    _pageController = PageController(initialPage: widget.capituloInicialIndex);
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _irAPaginaAnterior() {
+    if (_paginaActual > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _irAPaginaSiguiente() {
+    if (_paginaActual < widget.capitulosReales.length - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Solicitamos el foco para capturar eventos del teclado en la laptop automáticamente
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_focusNode.hasFocus) {
+        _focusNode.requestFocus();
+      }
+    });
+
+    return KeyboardListener(
+      focusNode: _focusNode,
+      onKeyEvent: (KeyEvent event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            _irAPaginaSiguiente();
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _irAPaginaAnterior();
+          }
+        }
+      },
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.capitulosReales.length,
+            onPageChanged: (index) {
+              setState(() {
+                _paginaActual = index;
+              });
+            },
+            itemBuilder: (context, index) {
+              final datosCapitulo = widget.capitulosReales[index];
+              List<dynamic> itemsCapitulo = datosCapitulo['items'] ?? [];
+              List<dynamic> versiculosFiltrados = [];
+
+              for (var item in itemsCapitulo) {
+                if (item is Map && item['type'] == 'verse') {
+                  List<dynamic> numList = item['verse_numbers'] ?? [];
+                  List<dynamic> linesList = item['lines'] ?? [];
+
+                  int numeroVerso = numList.isNotEmpty
+                      ? (int.tryParse(numList.first.toString()) ??
+                            (versiculosFiltrados.length + 1))
+                      : (versiculosFiltrados.length + 1);
+
+                  String textoVerso = linesList
+                      .map((e) => e.toString())
+                      .join(" ")
+                      .trim();
+
+                  if (textoVerso.isNotEmpty) {
+                    versiculosFiltrados.add({
+                      'number': numeroVerso,
+                      'text': textoVerso,
+                    });
+                  }
+                }
+              }
+
+              return CapituloScreen(
+                libro: widget.libro,
+                numero: index + 1,
+                versiculos: versiculosFiltrados,
+              );
+            },
+          ),
+
+          // BOTÓN FLOTANTE IZQUIERDO (Capítulo anterior)
+          if (_paginaActual > 0)
+            Positioned(
+              left: 10,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Opacity(
+                  opacity: 0.6,
+                  child: FloatingActionButton.small(
+                    heroTag: 'btn_prev_cap',
+                    backgroundColor: Colors.black54,
+                    foregroundColor: Colors.white,
+                    onPressed: _irAPaginaAnterior,
+                    child: const Icon(Icons.arrow_back_ios_new, size: 16),
+                  ),
+                ),
+              ),
+            ),
+
+          // BOTÓN FLOTANTE DERECHO (Capítulo siguiente)
+          if (_paginaActual < widget.capitulosReales.length - 1)
+            Positioned(
+              right: 10,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Opacity(
+                  opacity: 0.6,
+                  child: FloatingActionButton.small(
+                    heroTag: 'btn_next_cap',
+                    backgroundColor: Colors.black54,
+                    foregroundColor: Colors.white,
+                    onPressed: _irAPaginaSiguiente,
+                    child: const Icon(Icons.arrow_forward_ios, size: 16),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -524,6 +816,37 @@ class CapituloScreen extends StatelessWidget {
     required this.versiculos,
   });
 
+  String _normalizarNombreLibro(String nombreOriginal) {
+    String nombreLimpio = nombreOriginal.toLowerCase().trim();
+    switch (nombreLimpio) {
+      case 's. juan':
+      case 'san juan':
+      case 'juan':
+        return 'juan';
+      case 's. mateo':
+      case 'san mateo':
+      case 'mateo':
+        return 'mateo';
+      case 's. marcos':
+      case 'san marcos':
+      case 'marcos':
+        return 'marcos';
+      case 's. lucas':
+      case 'san lucas':
+      case 'lucas':
+        return 'lucas';
+      case 'hechos':
+      case 'hechos de los apóstoles':
+      case 'hechos de los apostoles':
+        return 'hechos';
+      case 'cantares':
+      case 'cantar de los cantares':
+        return 'cantares';
+      default:
+        return nombreLimpio;
+    }
+  }
+
   Future<String> _obtenerVersiculoDeVersion(
     String versionTarget,
     int numVersiculo,
@@ -537,8 +860,10 @@ class CapituloScreen extends StatelessWidget {
       final decoded = json.decode(data);
       List<dynamic> books = decoded['books'] ?? [];
 
+      String libroAComparar = _normalizarNombreLibro(libro);
+
       var libroEncontrado = books.firstWhere(
-        (b) => b['name'].toString().toLowerCase() == libro.toLowerCase(),
+        (b) => _normalizarNombreLibro(b['name'].toString()) == libroAComparar,
         orElse: () => null,
       );
 
@@ -564,7 +889,7 @@ class CapituloScreen extends StatelessWidget {
           }
         }
       }
-      return 'Versículo no encontrado en esta traducción.';
+      return 'Versículo no encontrado.';
     } catch (e) {
       return 'Error al cargar traducción.';
     }
@@ -578,12 +903,19 @@ class CapituloScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) {
+        final currentThemeName = AppEstado.temaSeleccionado.value;
+        final bool esOscuro = [
+          'dark',
+          'ocean',
+          'forest',
+          'amoled',
+        ].contains(currentThemeName);
         return AlertDialog(
           title: Text(
             'Comparador: $idVersiculo',
             style: const TextStyle(color: Colors.amber),
           ),
-          backgroundColor: const Color(0xFF1A1A1A),
+          backgroundColor: Theme.of(context).cardTheme.color,
           content: SizedBox(
             width: double.maxFinite,
             child: SingleChildScrollView(
@@ -596,7 +928,7 @@ class CapituloScreen extends StatelessWidget {
                     builder: (context, snapshot) {
                       String textoTraduccion =
                           snapshot.connectionState == ConnectionState.waiting
-                          ? 'Cargando traducción...'
+                          ? 'Cargando...'
                           : (snapshot.data ?? '');
 
                       return Padding(
@@ -610,7 +942,9 @@ class CapituloScreen extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade800,
+                                color: esOscuro
+                                    ? Colors.grey.shade800
+                                    : Colors.grey.shade300,
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
@@ -625,7 +959,11 @@ class CapituloScreen extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               textoTraduccion,
-                              style: const TextStyle(fontSize: 15, height: 1.4),
+                              style: TextStyle(
+                                fontSize: 15,
+                                height: 1.4,
+                                color: esOscuro ? Colors.white : Colors.black87,
+                              ),
                             ),
                             const Divider(color: Colors.grey),
                           ],
@@ -660,9 +998,16 @@ class CapituloScreen extends StatelessWidget {
         final textController = TextEditingController(
           text: AppEstado.notas.value[idVersiculo]?.toString() ?? '',
         );
+        final currentThemeName = AppEstado.temaSeleccionado.value;
+        final bool esOscuro = [
+          'dark',
+          'ocean',
+          'forest',
+          'amoled',
+        ].contains(currentThemeName);
 
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
+          backgroundColor: Theme.of(context).cardTheme.color,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
@@ -678,7 +1023,6 @@ class CapituloScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-
               ValueListenableBuilder<Map<String, dynamic>>(
                 valueListenable: AppEstado.colores,
                 builder: (context, mapaColores, _) {
@@ -729,10 +1073,14 @@ class CapituloScreen extends StatelessWidget {
                 },
               ),
               const Divider(height: 24, color: Colors.grey),
-
               ListTile(
                 leading: const Icon(Icons.compare_arrows, color: Colors.amber),
-                title: const Text('Comparar Traducciones'),
+                title: Text(
+                  'Comparar Traducciones',
+                  style: TextStyle(
+                    color: esOscuro ? Colors.white : Colors.black87,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(dialogContext);
                   _mostrarComparadorTraducciones(
@@ -742,7 +1090,6 @@ class CapituloScreen extends StatelessWidget {
                   );
                 },
               ),
-
               ValueListenableBuilder<Map<String, dynamic>>(
                 valueListenable: AppEstado.favoritos,
                 builder: (context, favs, _) {
@@ -754,6 +1101,9 @@ class CapituloScreen extends StatelessWidget {
                     ),
                     title: Text(
                       esFav ? 'Quitar de Favoritos' : 'Añadir a Favoritos',
+                      style: TextStyle(
+                        color: esOscuro ? Colors.white : Colors.black87,
+                      ),
                     ),
                     onTap: () {
                       Navigator.pop(dialogContext);
@@ -766,10 +1116,14 @@ class CapituloScreen extends StatelessWidget {
                   );
                 },
               ),
-
               ListTile(
                 leading: const Icon(Icons.note_add, color: Colors.lightBlue),
-                title: const Text('Escribir / Ver Nota'),
+                title: Text(
+                  'Escribir / Ver Nota',
+                  style: TextStyle(
+                    color: esOscuro ? Colors.white : Colors.black87,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(dialogContext);
                   _mostrarDialogoNota(context, idVersiculo, textController);
@@ -791,6 +1145,7 @@ class CapituloScreen extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Nota para $idVersiculo'),
+        backgroundColor: Theme.of(context).cardTheme.color,
         content: TextField(
           controller: controller,
           maxLines: 3,
@@ -818,38 +1173,51 @@ class CapituloScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: ValueListenableBuilder<String>(
-          valueListenable: AppEstado.versionActual,
-          builder: (context, version, _) => Text('$libro $numero ($version)'),
-        ),
-      ),
-      body: versiculos.isEmpty
-          ? const Center(
-              child: Text(
-                'Este capítulo no contiene versículos visibles.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: versiculos.length,
-              itemBuilder: (context, index) {
-                final itemVersiculo = versiculos[index] as Map<String, dynamic>;
-                int numVersiculo = itemVersiculo['number'] ?? (index + 1);
-                String textoCompleto = itemVersiculo['text'] ?? '';
-                final String idVersiculo = "$libro $numero:$numVersiculo";
+    return ValueListenableBuilder<String>(
+      valueListenable: AppEstado.temaSeleccionado,
+      builder: (context, tActual, _) {
+        final bool esOscuro = [
+          'dark',
+          'ocean',
+          'forest',
+          'amoled',
+        ].contains(tActual);
+        final colorTexto = esOscuro ? Colors.white : Colors.black87;
 
-                return ValueListenableBuilder<String>(
-                  valueListenable: AppEstado.versionActual,
-                  builder: (context, _, __) {
+        return Scaffold(
+          appBar: AppBar(
+            title: ValueListenableBuilder<String>(
+              valueListenable: AppEstado.versionActual,
+              builder: (context, version, _) =>
+                  Text('$libro $numero ($version)'),
+            ),
+          ),
+          body: versiculos.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Este capítulo no contiene versículos visibles.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 40,
+                    vertical: 16,
+                  ), // Agregamos padding horizontal para no chocar con las flechas flotantes
+                  itemCount: versiculos.length,
+                  itemBuilder: (context, index) {
+                    final itemVersiculo =
+                        versiculos[index] as Map<String, dynamic>;
+                    int numVersiculo = itemVersiculo['number'] ?? (index + 1);
+                    String textoCompleto = itemVersiculo['text'] ?? '';
+                    final String idVersiculo = "$libro $numero:$numVersiculo";
+
                     return AnimatedBuilder(
                       animation: Listenable.merge([
                         AppEstado.colores,
                         AppEstado.favoritos,
-                        AppEstado.notas,
+                        AppEstado.tamanoLetra,
                       ]),
                       builder: (context, _) {
                         final colorDinamico =
@@ -857,10 +1225,10 @@ class CapituloScreen extends StatelessWidget {
                         final Color? colorFondo = colorDinamico is Color
                             ? colorDinamico
                             : null;
-
                         final esFav = AppEstado.favoritos.value.containsKey(
                           idVersiculo,
                         );
+                        final double fontSz = AppEstado.tamanoLetra.value;
 
                         return GestureDetector(
                           onLongPress: () => _mostrarMenuContextual(
@@ -871,6 +1239,7 @@ class CapituloScreen extends StatelessWidget {
                           ),
                           child: Card(
                             color: colorFondo,
+                            elevation: esOscuro ? 1 : 2,
                             child: Padding(
                               padding: const EdgeInsets.all(14),
                               child: Row(
@@ -879,19 +1248,24 @@ class CapituloScreen extends StatelessWidget {
                                   Expanded(
                                     child: Text(
                                       '$numVersiculo. $textoCompleto',
-                                      style: const TextStyle(
-                                        fontSize: 18,
+                                      style: TextStyle(
+                                        fontSize: fontSz,
                                         height: 1.5,
-                                        color: Colors.white,
+                                        color: colorTexto,
                                       ),
                                     ),
                                   ),
-                                  if (esFav)
-                                    const Icon(
-                                      Icons.favorite,
-                                      color: Colors.red,
-                                      size: 16,
+                                  if (esFav) ...[
+                                    const SizedBox(width: 8),
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 2.0),
+                                      child: Icon(
+                                        Icons.favorite,
+                                        color: Colors.redAccent,
+                                        size: 20,
+                                      ),
                                     ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -900,9 +1274,153 @@ class CapituloScreen extends StatelessWidget {
                       },
                     );
                   },
-                );
-              },
-            ),
+                ),
+        );
+      },
+    );
+  }
+}
+
+/// --- PANTALLA DE AJUSTES ---
+class AjustesScreen extends StatelessWidget {
+  const AjustesScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: AppEstado.temaSeleccionado,
+      builder: (context, tActual, _) {
+        final bool esOscuro = [
+          'dark',
+          'ocean',
+          'forest',
+          'amoled',
+        ].contains(tActual);
+        final colorTexto = esOscuro ? Colors.white : Colors.black87;
+
+        return Scaffold(
+          appBar: AppBar(title: const Text('Ajustes')),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              ListTile(
+                leading: const Icon(Icons.text_fields, color: Colors.amber),
+                title: const Text(
+                  'Tamaño de la Fuente (Lectura)',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  'Ajusta el tamaño del texto a tu gusto',
+                  style: TextStyle(
+                    color: esOscuro ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+              ),
+              ValueListenableBuilder<double>(
+                valueListenable: AppEstado.tamanoLetra,
+                builder: (context, tamano, _) {
+                  return Column(
+                    children: [
+                      Slider(
+                        value: tamano,
+                        min: 14.0,
+                        max: 30.0,
+                        divisions: 8,
+                        activeColor: Colors.amber,
+                        label: '${tamano.toInt()} px',
+                        onChanged: (nuevoValor) =>
+                            AppEstado.guardarTamanoLetra(nuevoValor),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Text(
+                          'Texto de ejemplo en ${tamano.toInt()} px',
+                          style: TextStyle(fontSize: tamano, color: colorTexto),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const Divider(height: 40),
+              const ListTile(
+                leading: Icon(Icons.palette, color: Colors.amber),
+                title: Text(
+                  'Modo / Tema de la Aplicación',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              _buildTemaOption(
+                context,
+                'light',
+                'Modo Claro (Gris/Blanco)',
+                tActual,
+                colorTexto,
+              ),
+              _buildTemaOption(
+                context,
+                'dark',
+                'Modo Oscuro (Gris/Ámbar)',
+                tActual,
+                colorTexto,
+              ),
+              _buildTemaOption(
+                context,
+                'sepia',
+                'Modo Sepia (Histórico/Café)',
+                tActual,
+                colorTexto,
+              ),
+              _buildTemaOption(
+                context,
+                'ocean',
+                'Océano Profundo (Azul Marino)',
+                tActual,
+                colorTexto,
+              ),
+              _buildTemaOption(
+                context,
+                'forest',
+                'Bosque Místico (Verde Olivo)',
+                tActual,
+                colorTexto,
+              ),
+              _buildTemaOption(
+                context,
+                'lavender',
+                'Amanecer Lavanda (Lila Pastel)',
+                tActual,
+                colorTexto,
+              ),
+              _buildTemaOption(
+                context,
+                'amoled',
+                'Noche de Carbón (Negro Absoluto)',
+                tActual,
+                colorTexto,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTemaOption(
+    BuildContext context,
+    String value,
+    String title,
+    String currentTheme,
+    Color textCol,
+  ) {
+    return RadioListTile<String>(
+      title: Text(title, style: TextStyle(color: textCol)),
+      value: value,
+      groupValue: currentTheme,
+      activeColor: Colors.amber,
+      onChanged: (val) {
+        if (val != null) AppEstado.cambiarTema(val);
+      },
     );
   }
 }
@@ -912,77 +1430,94 @@ class FavoritosScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mis Favoritos')),
-      body: ValueListenableBuilder<Map<String, dynamic>>(
-        valueListenable: AppEstado.favoritos,
-        builder: (context, mapaFavs, _) {
-          if (mapaFavs.isEmpty) {
-            return const Center(
-              child: Text(
-                'No has añadido versículos favoritos aún.\nMantén presionado uno para empezar.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 16),
-              ),
-            );
-          }
-          final keys = mapaFavs.keys.toList();
+    return ValueListenableBuilder<String>(
+      valueListenable: AppEstado.temaSeleccionado,
+      builder: (context, tActual, _) {
+        final bool esOscuro = [
+          'dark',
+          'ocean',
+          'forest',
+          'amoled',
+        ].contains(tActual);
+        final colorTexto = esOscuro ? Colors.white : Colors.black87;
 
-          return ListView.builder(
-            itemCount: keys.length,
-            itemBuilder: (context, index) {
-              final citaId = keys[index];
-              final textoVersiculo = mapaFavs[citaId]?.toString() ?? '';
+        return Scaffold(
+          appBar: AppBar(title: const Text('Mis Favoritos')),
+          body: ValueListenableBuilder<Map<String, dynamic>>(
+            valueListenable: AppEstado.favoritos,
+            builder: (context, mapaFavs, _) {
+              if (mapaFavs.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No has añadido versículos favoritos aún.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                );
+              }
+              final keys = mapaFavs.keys.toList();
 
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              return ListView.builder(
+                itemCount: keys.length,
+                itemBuilder: (context, index) {
+                  final citaId = keys[index];
+                  final textoVersiculo = mapaFavs[citaId]?.toString() ?? '';
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            citaId,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber,
-                              fontSize: 16,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                citaId,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.redAccent,
+                                  size: 20,
+                                ),
+                                onPressed: () => AppEstado.alternarFavorito(
+                                  citaId,
+                                  textoVersiculo,
+                                  context,
+                                ),
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.delete,
-                              color: Colors.redAccent,
-                              size: 20,
-                            ),
-                            onPressed: () => AppEstado.alternarFavorito(
-                              citaId,
-                              textoVersiculo,
-                              context,
+                          const SizedBox(height: 6),
+                          Text(
+                            textoVersiculo,
+                            style: TextStyle(
+                              fontSize: 16,
+                              height: 1.4,
+                              fontStyle: FontStyle.italic,
+                              color: colorTexto,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        textoVersiculo,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          height: 1.4,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1021,65 +1556,81 @@ class NotasGlobalScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mis Notas y Reflexiones')),
-      body: ValueListenableBuilder<Map<String, dynamic>>(
-        valueListenable: AppEstado.notas,
-        builder: (context, mapaNotas, _) {
-          if (mapaNotas.isEmpty) {
-            return const Center(
-              child: Text(
-                'No tienes notas guardadas todavía.\nMantén presionado un versículo para escribir una.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 16),
-              ),
-            );
-          }
-          final keys = mapaNotas.keys.toList();
+    return ValueListenableBuilder<String>(
+      valueListenable: AppEstado.temaSeleccionado,
+      builder: (context, tActual, _) {
+        final bool esOscuro = [
+          'dark',
+          'ocean',
+          'forest',
+          'amoled',
+        ].contains(tActual);
+        final colorTexto = esOscuro ? Colors.white : Colors.black87;
 
-          return ListView.builder(
-            itemCount: keys.length,
-            itemBuilder: (context, index) {
-              final citaId = keys[index];
-              final cuerpoNota = mapaNotas[citaId]?.toString() ?? '';
-
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                color: const Color(0xFF1E2530),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(14),
-                  title: Text(
-                    citaId,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.lightBlueAccent,
-                      fontSize: 16,
-                    ),
+        return Scaffold(
+          appBar: AppBar(title: const Text('Mis Notas y Reflexiones')),
+          body: ValueListenableBuilder<Map<String, dynamic>>(
+            valueListenable: AppEstado.notas,
+            builder: (context, mapaNotas, _) {
+              if (mapaNotas.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No tienes notas guardadas todavía.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
                   ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      cuerpoNota,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.white,
-                        height: 1.4,
+                );
+              }
+              final keys = mapaNotas.keys.toList();
+
+              return ListView.builder(
+                itemCount: keys.length,
+                itemBuilder: (context, index) {
+                  final citaId = keys[index];
+                  final cuerpoNota = mapaNotas[citaId]?.toString() ?? '';
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
+                      title: Text(
+                        citaId,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.lightBlueAccent,
+                          fontSize: 16,
+                        ),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          cuerpoNota,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: colorTexto,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.redAccent,
+                        ),
+                        onPressed: () =>
+                            _confirmarEliminarNota(context, citaId),
                       ),
                     ),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.redAccent,
-                    ),
-                    onPressed: () => _confirmarEliminarNota(context, citaId),
-                  ),
-                ),
+                  );
+                },
               );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
